@@ -60,6 +60,29 @@ except Exception as e:
     PDFKIT_ERROR = str(e)
     logger.warning(f"⚠️ pdfkit 检测失败: {e}")
 
+# 检查 xhtml2pdf (纯 Python PDF 生成工具)
+XHTML2PDF_AVAILABLE = False
+try:
+    from xhtml2pdf import pisa
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    
+    # 尝试注册中文字体 (Windows 常用 SimHei)
+    SIMHEI_PATH = r'C:\Windows\Fonts\simhei.ttf'
+    if os.path.exists(SIMHEI_PATH):
+        pdfmetrics.registerFont(TTFont('SimHei', SIMHEI_PATH))
+        HAS_CHINESE_FONT = True
+        logger.info("✅ xhtml2pdf 可用 (已加载 SimHei 字体)")
+    else:
+        HAS_CHINESE_FONT = False
+        logger.warning("⚠️ xhtml2pdf: 未找到 SimHei 字体，中文可能乱码")
+        
+    XHTML2PDF_AVAILABLE = True
+except ImportError:
+    logger.warning("⚠️ xhtml2pdf 未安装")
+except Exception as e:
+    logger.warning(f"⚠️ xhtml2pdf 初始化失败: {e}")
+
 
 class ReportExporter:
     """报告导出器 - 支持 Markdown、Word、PDF 格式"""
@@ -67,12 +90,17 @@ class ReportExporter:
     def __init__(self):
         self.export_available = EXPORT_AVAILABLE
         self.pandoc_available = PANDOC_AVAILABLE
+        self.export_available = EXPORT_AVAILABLE
+        self.pandoc_available = PANDOC_AVAILABLE
         self.pdfkit_available = PDFKIT_AVAILABLE
+        self.xhtml2pdf_available = XHTML2PDF_AVAILABLE
 
         logger.info("📋 ReportExporter 初始化:")
         logger.info(f"  - export_available: {self.export_available}")
         logger.info(f"  - pandoc_available: {self.pandoc_available}")
+        logger.info(f"  - pandoc_available: {self.pandoc_available}")
         logger.info(f"  - pdfkit_available: {self.pdfkit_available}")
+        logger.info(f"  - xhtml2pdf_available: {self.xhtml2pdf_available}")
     
     def generate_markdown_report(self, report_doc: Dict[str, Any]) -> str:
         """生成 Markdown 格式报告"""
@@ -632,21 +660,147 @@ pre, code {
         logger.info(f"✅ pdfkit PDF 生成成功，大小: {len(pdf_bytes)} 字节")
         return pdf_bytes
 
+    def _generate_pdf_with_xhtml2pdf(self, md_content: str) -> bytes:
+        """使用 xhtml2pdf 生成 PDF (输入 Markdown，使用绝对路径字体文件)"""
+        from xhtml2pdf import pisa
+        from io import BytesIO
+        import markdown
+        import os
+
+        logger.info("🔧 使用 xhtml2pdf 生成 PDF (Markdown 源)...")
+        
+        # 1. 寻找可用中文字体文件绝对路径
+        font_path = None
+        # 优先列表: 宋体(最通用), 黑体, 微软雅黑
+        candidates = ['simsun.ttc', 'simhei.ttf', 'msyh.ttc']
+        font_dir = r'C:\Windows\Fonts'
+        
+        for filename in candidates:
+            p = os.path.join(font_dir, filename)
+            if os.path.exists(p):
+                # CSS url() 需要正斜杠
+                font_path = p.replace('\\', '/') 
+                logger.info(f"✅ 找到可用的中文字体文件: {font_path}")
+                break
+        
+        if not font_path:
+            logger.warning("⚠️ 未找到常用中文字体文件，PDF 中文可能乱码")
+            font_path = "sans-serif" # Fallback
+
+        # 2. Markdown -> HTML
+        extensions = [
+             'markdown.extensions.tables',
+             'markdown.extensions.fenced_code',
+             'markdown.extensions.nl2br',
+        ]
+        raw_html = markdown.markdown(md_content, extensions=extensions)
+
+        # 3. 构建 HTML + CSS
+        final_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <style>
+                @page {{
+                    size: A4;
+                    margin: 2cm;
+                }}
+                
+                /* 定义自定义字体 */
+                @font-face {{
+                    font-family: 'ChineseFont';
+                    src: url('{font_path}');
+                }}
+                
+                body {{
+                    font-family: 'ChineseFont', sans-serif;
+                    font-size: 10pt;
+                    line-height: 1.5;
+                }}
+                
+                /* 强制所有元素继承或使用该字体 */
+                h1, h2, h3, h4, h5, h6, p, div, span, li, a, table, th, td, pre, code, b, strong, i, em {{
+                    font-family: 'ChineseFont', sans-serif;
+                }}
+
+                h1 {{ font-size: 18pt; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 10px; font-weight: bold; }}
+                h2 {{ font-size: 16pt; color: #34495e; margin-top: 20px; font-weight: bold; }}
+                h3 {{ font-size: 14pt; color: #7f8c8d; font-weight: bold; }}
+                p {{ margin-bottom: 10px; text-align: justify; }}
+                
+                /* 表格样式 */
+                table {{
+                    width: 100%;
+                    border-collapse: collapse; 
+                    margin-bottom: 15px;
+                }}
+                th {{
+                    background-color: #f2f2f2;
+                    color: #333;
+                    font-weight: bold;
+                    border: 1px solid #ccc;
+                    padding: 5px;
+                }}
+                td {{
+                    border: 1px solid #ccc;
+                    padding: 5px;
+                }}
+                
+                /* 代码块 */
+                pre {{
+                    background-color: #f8f8f8;
+                    border: 1px solid #ddd;
+                    padding: 10px;
+                    white-space: pre-wrap;
+                }}
+            </style>
+        </head>
+        <body>
+            {raw_html}
+        </body>
+        </html>
+        """
+
+        result_file = BytesIO()
+        
+        # 4. 转换
+        pisa_status = pisa.CreatePDF(
+            final_html,
+            dest=result_file,
+            encoding='utf-8'
+        )
+
+        if pisa_status.err:
+            raise Exception(f"xhtml2pdf 转换内部错误: {pisa_status.err}")
+
+        pdf_value = result_file.getvalue()
+        logger.info(f"✅ xhtml2pdf PDF 生成成功，大小: {len(pdf_value)} 字节")
+        return pdf_value
+
     def generate_pdf_report(self, report_doc: Dict[str, Any]) -> bytes:
-        """生成 PDF 格式报告（使用 pdfkit + wkhtmltopdf）"""
+        """生成 PDF 格式报告"""
         logger.info("📊 开始生成 PDF 文档...")
 
         # 检查 pdfkit 是否可用
         if not self.pdfkit_available:
+            xhtml2pdf_error = None
+            if self.xhtml2pdf_available:
+                logger.info("⚠️ pdfkit 不可用，尝试切换使用 xhtml2pdf...")
+                try:
+                    md_content = self.generate_markdown_report(report_doc)
+                    return self._generate_pdf_with_xhtml2pdf(md_content)
+                except Exception as e:
+                     xhtml2pdf_error = str(e)
+                     logger.error(f"❌ xhtml2pdf 生成失败: {e}")
+            
             error_msg = (
-                "pdfkit 不可用，无法生成 PDF。\n\n"
-                "安装方法:\n"
-                "1. 安装 pdfkit: pip install pdfkit\n"
-                "2. 安装 wkhtmltopdf: https://wkhtmltopdf.org/downloads.html\n"
+                "PDF 生成工具不可用。\n"
+                "请安装 wkhtmltopdf (推荐) 或检查后台日志。\n"
+                f"pdfkit 状态: {PDFKIT_ERROR or '未安装/未找到 executable'}\n"
+                f"xhtml2pdf 状态: {'可用' if self.xhtml2pdf_available else '未安装'} \n"
+                f"xhtml2pdf 错误: {xhtml2pdf_error or '未尝试 (依赖缺失)'}"
             )
-            if PDFKIT_ERROR:
-                error_msg += f"\n错误详情: {PDFKIT_ERROR}"
-
             logger.error(f"❌ {error_msg}")
             raise Exception(error_msg)
 
@@ -658,7 +812,19 @@ pre, code {
             html_content = self._markdown_to_html(md_content)
             return self._generate_pdf_with_pdfkit(html_content)
         except Exception as e:
+            logger.warning(f"⚠️ pdfkit 生成失败: {e}，尝试使用 xhtml2pdf 降级处理...")
+            xhtml2pdf_error_fallback = None
+            if self.xhtml2pdf_available:
+                try:
+                    return self._generate_pdf_with_xhtml2pdf(md_content)
+                except Exception as inner_e:
+                    xhtml2pdf_error_fallback = str(inner_e)
+                    logger.error(f"❌ xhtml2pdf 降级尝试也失败: {inner_e}")
+            
             error_msg = f"PDF 生成失败: {e}"
+            if xhtml2pdf_error_fallback:
+                error_msg += f" (降级重试也失败: {xhtml2pdf_error_fallback})"
+            
             logger.error(f"❌ {error_msg}")
             raise Exception(error_msg)
 

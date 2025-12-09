@@ -44,7 +44,7 @@ class DatabaseManager:
 
         # 使用强健的布尔值解析（兼容Python 3.13+）
         from .env_utils import parse_bool_env
-        self.mongodb_enabled = parse_bool_env("MONGODB_ENABLED", False)
+        self.mongodb_enabled = parse_bool_env("MONGODB_ENABLED", True)
         self.redis_enabled = parse_bool_env("REDIS_ENABLED", False)
 
         # 从环境变量读取MongoDB配置

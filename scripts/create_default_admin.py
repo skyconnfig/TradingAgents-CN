@@ -17,17 +17,30 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 import argparse
+import os
+from dotenv import load_dotenv
 
-# 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from pymongo import MongoClient
 
 
-# 配置
-MONGO_URI = "mongodb://admin:tradingagents123@localhost:27017/tradingagents?authSource=admin"
 DB_NAME = "tradingagents"
+
+def get_mongo_uri() -> str:
+    load_dotenv(project_root / ".env")
+    uri_env = os.getenv("MONGODB_CONNECTION_STRING", "").strip()
+    if uri_env:
+        return uri_env
+    host = os.getenv("MONGODB_HOST", "localhost").strip()
+    port = os.getenv("MONGODB_PORT", "27017").strip()
+    user = os.getenv("MONGODB_USERNAME", "").strip()
+    pwd = os.getenv("MONGODB_PASSWORD", "").strip()
+    auth_src = os.getenv("MONGODB_AUTH_SOURCE", "admin").strip()
+    if user and pwd:
+        return f"mongodb://{user}:{pwd}@{host}:{port}/{DB_NAME}?authSource={auth_src}"
+    return f"mongodb://{host}:{port}/{DB_NAME}"
 
 
 def hash_password(password: str) -> str:
@@ -36,20 +49,15 @@ def hash_password(password: str) -> str:
 
 
 def connect_mongodb() -> MongoClient:
-    """连接到 MongoDB"""
-    print(f"🔌 连接到 MongoDB...")
-    
+    print("🔌 连接到 MongoDB...")
+    uri = get_mongo_uri()
     try:
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-        # 测试连接
+        client = MongoClient(uri, serverSelectionTimeoutMS=5000)
         client.admin.command('ping')
-        print(f"✅ MongoDB 连接成功")
+        print("✅ MongoDB 连接成功")
         return client
-    
     except Exception as e:
         print(f"❌ 错误: MongoDB 连接失败: {e}")
-        print(f"   请确保 MongoDB 容器正在运行")
-        print(f"   运行: docker ps | grep mongodb")
         sys.exit(1)
 
 

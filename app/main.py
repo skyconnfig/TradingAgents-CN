@@ -1,6 +1,6 @@
 """
 TradingAgents-CN v1.0.0-preview FastAPI Backend
-主应用程序入口
+主应用程序入口 # Reload trigger 2025-12-08
 
 Copyright (c) 2025 hsliuping. All rights reserved.
 版权所有 (c) 2025 hsliuping。保留所有权利。

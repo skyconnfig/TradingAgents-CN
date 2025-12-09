@@ -19,7 +19,8 @@ class MongoDBCacheAdapter:
     """MongoDB 缓存适配器（从 app 的 MongoDB 读取同步数据）"""
     
     def __init__(self):
-        self.use_app_cache = use_app_cache_enabled(False)
+        # 强制启用本地缓存，确保能读取到我们手动同步的数据
+        self.use_app_cache = True # use_app_cache_enabled(True)
         self.mongodb_client = None
         self.db = None
         

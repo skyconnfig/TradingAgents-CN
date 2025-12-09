@@ -622,6 +622,37 @@ class StockDataPreparer:
             from tradingagents.dataflows.cache.mongodb_cache_adapter import get_mongodb_cache_adapter
 
             adapter = get_mongodb_cache_adapter()
+            
+            # 🔥 [HOTFIX v2] 强制修复整个数据库连接链条
+            try:
+                from tradingagents.config.database_manager import get_database_manager
+                db_mgr = get_database_manager()
+                
+                # 1. 强制启用 DatabaseManager 中的 MongoDB
+                if not db_mgr.mongodb_available or not db_mgr.mongodb_client:
+                    logger.info("🔧 [HOTFIX] 强制启用 DatabaseManager MongoDB 支持")
+                    db_mgr.mongodb_enabled = True
+                    # 重新加载配置 (确保 host/port 正确)
+                    db_mgr._load_env_config()
+                    db_mgr.mongodb_enabled = True # _load_env_config 可能会覆盖，再次强制为 True
+                    
+                    # 重新检测并连接
+                    db_mgr._detect_databases()
+                    db_mgr._initialize_connections()
+                
+                # 2. 强制启用 Adapter 缓存
+                if not adapter.use_app_cache:
+                    logger.info("🔧 [HOTFIX] 强制启用 adapter.use_app_cache")
+                    adapter.use_app_cache = True
+                
+                # 3. 强制 Adapter 重新连接 (如果仍未连接)
+                if adapter.db is None:
+                    logger.info("🔧 [HOTFIX] 强制重置 Adapter MongoDB 连接")
+                    adapter._init_mongodb_connection()
+                    
+            except Exception as e:
+                logger.error(f"🔧 [HOTFIX] 修复尝试失败: {e}")
+
             if not adapter.use_app_cache or adapter.db is None:
                 return {
                     "has_data": False,
